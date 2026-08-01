@@ -1,5 +1,7 @@
 # bindome-query
 
+[![CI](https://github.com/ssiddhantsharma/bindome-query/actions/workflows/ci.yml/badge.svg)](https://github.com/ssiddhantsharma/bindome-query/actions/workflows/ci.yml)
+
 Query the [**Human Bindome**](https://bindome.epfl.ch) for a list of protein
 targets and get tidy per-design metrics, a per-target summary, and a figure of
 the binder-confidence distribution.
