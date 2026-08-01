@@ -74,7 +74,7 @@ it's the primary key the Bindome API uses anyway.
 |---|---|
 | `out/bindome_designs.csv` | one row per designed binder — target, UniProt region hit (`uniprot_start/end`), parsed design fields (`domain`, `binder_length`, `seed`, `mpnn_variant`, `af_model`), all seven metrics, and `model_url`/`pae_url` |
 | `out/bindome_summary.csv` | one row per target — `n_binders`, `n_regions`, and best/median of every metric |
-| `out/bindome_metrics.png` | box + strip distribution of `i_pTM`, `i_pAE`, `pLDDT` per target, sorted by median `i_pTM`; targets with zero binders are named in the footnote |
+| `out/bindome_metrics.png` | two metric-vs-metric **gate scatters** (`i_pTM` vs `i_pAE`, `pLDDT` vs `ipSAE`) colored by target, with the passing corner shaded and dashed cutoff lines, plus a target key and a per-target pass-rate table |
 
 ## Metrics
 
@@ -83,6 +83,12 @@ All values are **normalized to 0–1** as returned by the API. Higher is better 
 `pAE`. `uniprot_start`/`uniprot_end` tell you which region of the target each
 binder was designed against — useful for checking whether a candidate overlaps an
 epitope you care about.
+
+**Cutoffs used in the figure** (normalized units): `i_pTM ≥ 0.85`,
+`i_pAE ≤ 0.24`, `pLDDT ≥ 0.90`, `ipSAE ≥ 0.90`. Note `i_pAE` is normalized
+≈ Å/25 (calibrated against the raw PAE matrices), so **`i_pAE ≤ 0.24 ≈ 6 Å`** —
+`0.6` would be ~15 Å. Edit `THRESHOLDS` in `bindome_query.py` to change them.
+These are **in-silico BindCraft design metrics, not measured affinity.**
 
 ## API notes
 

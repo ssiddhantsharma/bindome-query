@@ -33,6 +33,7 @@ import numpy as np
 import pandas as pd
 import requests
 from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
 
 API = "https://bindome.epfl.ch"
 UNIPROT = "https://rest.uniprot.org/uniprotkb"
@@ -48,9 +49,6 @@ METRICS = [
     ("average_ipSAE", "ipSAE", True),
 ]
 
-# Metrics shown in the figure (the three most decision-relevant), in panel order.
-FIGURE_METRICS = ["i_pTM", "i_pAE", "pLDDT"]
-
 # BindCraft design names look like:
 #   P24821_DOMAIN10-no_hotspot_l90_s989522_mpnn2_model2
 ID_RE = re.compile(
@@ -58,23 +56,26 @@ ID_RE = re.compile(
     r"_s(?P<seed>\d+)_mpnn(?P<mpnn>\d+)_model(?P<afmodel>\d+)$"
 )
 
-# ---- dataviz palette (validated reference palette, light mode) --------------
-INK = "#0b0b0b"
-INK2 = "#52514e"
-MUTED = "#898781"
-GRID = "#e1e0d9"
-BASE = "#c3c2b7"
-BOX_FILL = "#f0efec"
-SURFACE = "#fcfcfb"
-# Validated categorical palette (fixed order, never cycled). A 9th domain folds
-# into "Other" (gray) rather than getting an unvalidated hue.
-CATEGORICAL = ["#2a78d6", "#008300", "#e87ba4", "#eda100",
-               "#1baf7a", "#eb6834", "#4a3aa7", "#e34948"]
-OTHER = "#898781"
-THRESH_LINE = "#b5651d"  # dashed viability guide
+# ---- house style (matches modalfilter screening figures) --------------------
+INK = "#22303a"
+SUB = "#8a98a0"
+MUT = "#b9c6cc"
+GRIDC = "#eef1f2"
+SURFACE = "#ffffff"
+CUT = "#22303a"  # dashed cutoff line
+# categorical, fixed order (teal, amber, blue, red, green, violet, grey, aqua)
+TARGET_PALETTE = ["#2e6e85", "#e0892f", "#3b6fb0", "#b5524b",
+                  "#2e7d32", "#7b5ea7", "#5a6b73", "#1a9aa5"]
 
-# Typical BindCraft-style filter guides (normalized 0–1), per metric.
-THRESHOLDS = {"i_pTM": 0.80, "i_pAE": 0.20, "pLDDT": 0.90}
+# Filter guides in the API's NORMALIZED 0–1 units. i_pAE is normalized ≈ Å/25,
+# so 6 Å ≈ 0.24 (empirically calibrated against raw PAE matrices) — NOT 0.6.
+THRESHOLDS = {"i_pTM": 0.85, "i_pAE": 0.24, "pLDDT": 0.90, "ipSAE": 0.90}
+PASS_REGION = "#e2efe3"  # light green shade for the "pass" corner
+
+# Scatter panels: each pairs two metrics so all four cutoffs show as gate lines.
+SCATTER_PAIRS = [("i_pTM", "i_pAE"), ("pLDDT", "ipSAE")]
+# Nicer axis labels (keeps the i_pAE→Å calibration visible without a footer).
+AXIS_LABEL = {"i_pAE": "i_pAE  (norm.; ≤0.24 ≈ 6 Å)"}
 
 
 # ---------------------------------------------------------------------------
@@ -313,122 +314,105 @@ def summary_frame(targets: list[dict], designs: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Figure
 # ---------------------------------------------------------------------------
-def _domain_colors(have: pd.DataFrame) -> dict:
-    """Map each target domain to a fixed categorical hue (most frequent first);
-    domains past the palette fold into a single gray 'Other'."""
-    doms = (have["domain"].fillna("?").value_counts().index.tolist())
-    mapping = {}
-    for i, d in enumerate(doms):
-        mapping[d] = CATEGORICAL[i] if i < len(CATEGORICAL) else OTHER
-    return mapping
-
-
 def make_figure(designs: pd.DataFrame, empty_targets: list[str], out_png: Path,
                 updated: str) -> None:
+    """Metric-vs-metric gate scatters across targets — each panel pairs two
+    metrics so all four cutoffs appear as gate lines, with the passing corner
+    shaded, colored by target, plus a key + pass-rate panel. Matches the
+    modalfilter screening-figure house style."""
     have = designs.dropna(subset=["i_pTM"]).copy()
     if have.empty:
         print("  [figure] no binders across any target — skipping figure")
         return
-    have["domain"] = have["domain"].fillna("?")
 
-    order = (have.groupby("target_name")["i_pTM"].median()
-             .sort_values().index.tolist())
-    counts = have.groupby("target_name")["i_pTM"].size()
-    ylabels = [f"{name}  (n={counts[name]})" for name in order]
-    ypos = {name: i for i, name in enumerate(order)}
+    higher_by = {s: h for _, s, h in METRICS}
+    order = have["target_name"].value_counts().index.tolist()
+    color = {t: TARGET_PALETTE[i % len(TARGET_PALETTE)] for i, t in enumerate(order)}
+    n_by = have["target_name"].value_counts().to_dict()
 
-    dom_color = _domain_colors(have)
-    multi_domain = len(dom_color) > 1
-
-    metrics = [(s, h) for _, s, h in METRICS if s in FIGURE_METRICS]
-    arrows = {True: "↑ higher better", False: "↓ lower better"}
-
-    fig, axes = plt.subplots(
-        1, len(metrics), sharey=True,
-        figsize=(3.6 * len(metrics) + 1.2, 0.52 * len(order) + 2.6),
-    )
-    if len(metrics) == 1:
-        axes = [axes]
+    fig = plt.figure(figsize=(13, 8.6))
     fig.patch.set_facecolor(SURFACE)
-    rng = np.random.default_rng(0)
+    gs = fig.add_gridspec(2, 2, height_ratios=[3.0, 0.85], hspace=0.32,
+                          wspace=0.2)
+    scatter_axes = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])]
+    key = fig.add_subplot(gs[1, 0])
+    tbl = fig.add_subplot(gs[1, 1])
 
-    for ax, (short, higher) in zip(axes, metrics):
+    def _pass(col, s):
+        return (col >= THRESHOLDS[s]) if higher_by[s] else (col <= THRESHOLDS[s])
+
+    def _label(s):
+        return AXIS_LABEL.get(s, s)
+
+    for ax, (mx, my) in zip(scatter_axes, SCATTER_PAIRS):
         ax.set_facecolor(SURFACE)
-        thr = THRESHOLDS.get(short)
-        if thr is not None:
-            ax.axvline(thr, color=THRESH_LINE, ls=(0, (4, 3)), lw=1.1,
-                       zorder=2, alpha=0.7)
-        for name in order:
-            sub = have.loc[have["target_name"] == name]
-            vals = sub[short].dropna().values
-            y = ypos[name]
-            if not len(vals):
-                continue
-            ax.boxplot(
-                vals, positions=[y], orientation="horizontal", widths=0.55,
-                patch_artist=True, showfliers=False, zorder=1,
-                medianprops=dict(color=INK2, lw=1.4),
-                whiskerprops=dict(color=BASE, lw=1.0),
-                capprops=dict(color=BASE, lw=1.0),
-                boxprops=dict(facecolor=BOX_FILL, edgecolor=BASE, lw=1.0),
-            )
-            jit = rng.uniform(-0.16, 0.16, size=len(vals))
-            colors = [dom_color[d] for d in sub["domain"].values]
-            ax.scatter(vals, np.full(len(vals), y) + jit, s=24, c=colors,
-                       edgecolor="white", linewidth=0.3, zorder=3, alpha=0.95)
-            # median value label above the box
-            med = float(np.median(vals))
-            ax.text(med, y + 0.34, f"{med:.2f}", fontsize=7.5, color=INK2,
-                    ha="center", va="bottom", zorder=4,
-                    bbox=dict(boxstyle="round,pad=0.1", fc=SURFACE, ec="none",
-                              alpha=0.7))
-        ax.set_title(f"{short}\n{arrows[higher]}", fontsize=11, color=INK,
-                     pad=8, linespacing=1.4)
-        ax.tick_params(colors=MUTED, labelsize=9)
-        ax.grid(axis="x", color=GRID, lw=0.8, zorder=0)
+        x, y = have[mx].values, have[my].values
+        xlo, xhi = np.min(x), np.max(x)
+        ylo, yhi = np.min(y), np.max(y)
+        xpad, ypad = (xhi - xlo) * 0.06 or 0.01, (yhi - ylo) * 0.06 or 0.01
+        ax.set_xlim(xlo - xpad, xhi + xpad)
+        ax.set_ylim(ylo - ypad, yhi + ypad)
+        tx, ty = THRESHOLDS[mx], THRESHOLDS[my]
+        # shaded "pass" corner (both metrics on their good side)
+        gx0 = tx if higher_by[mx] else ax.get_xlim()[0]
+        gx1 = ax.get_xlim()[1] if higher_by[mx] else tx
+        gy0 = ty if higher_by[my] else ax.get_ylim()[0]
+        gy1 = ax.get_ylim()[1] if higher_by[my] else ty
+        ax.add_patch(Rectangle((gx0, gy0), gx1 - gx0, gy1 - gy0,
+                               facecolor=PASS_REGION, edgecolor="none", zorder=0))
+        ax.axvline(tx, color=CUT, ls="--", lw=1.4, zorder=1)
+        ax.axhline(ty, color=CUT, ls="--", lw=1.4, zorder=1)
+        for t in order:
+            sub = have[have["target_name"] == t]
+            ax.scatter(sub[mx], sub[my], s=44, color=color[t], alpha=0.6,
+                       edgecolor="white", linewidth=0.3, zorder=3)
+        in_gate = int((_pass(have[mx], mx) & _pass(have[my], my)).sum())
+        arrow = lambda s: "≥" if higher_by[s] else "≤"
+        ax.set_title(
+            f"{mx} vs {my}\ngate: {mx}{arrow(mx)}{tx:g} & {my}{arrow(my)}{ty:g}"
+            f"  →  {in_gate}/{len(have)} in gate",
+            fontsize=12.5, color=INK, fontweight="bold", linespacing=1.35)
+        ax.set_xlabel(_label(mx), fontsize=10, color=SUB)
+        ax.set_ylabel(_label(my), fontsize=10, color=SUB)
+        ax.tick_params(colors=SUB, labelsize=9)
+        ax.grid(True, color=GRIDC, lw=1.0)
         ax.set_axisbelow(True)
-        for spine in ("top", "right", "left"):
-            ax.spines[spine].set_visible(False)
-        ax.spines["bottom"].set_color(BASE)
+        for sp in ("top", "right"):
+            ax.spines[sp].set_visible(False)
+        for sp in ("left", "bottom"):
+            ax.spines[sp].set_color(MUT)
 
-    axes[0].set_yticks(range(len(order)))
-    axes[0].set_yticklabels(ylabels, fontsize=9, color=INK)
-    axes[0].set_ylim(-0.7, len(order) + 0.1)
+    # ---- key panel + pass-rate panel (short bottom strip) -----------------
+    key.axis("off"); tbl.axis("off")
+    handles = [Line2D([0], [0], marker="o", ls="", markersize=10,
+                      markerfacecolor=color[t], markeredgecolor="white",
+                      markeredgewidth=0.5, label=f"{t}  (n={n_by[t]})")
+               for t in order]
+    key.legend(handles=handles, title="target", loc="upper left",
+               bbox_to_anchor=(0.0, 1.0), frameon=False, fontsize=10.5,
+               title_fontsize=11, labelspacing=0.5, ncol=2, columnspacing=1.4)
 
-    fig.suptitle("Human Bindome — designed-binder confidence by target",
-                 fontsize=14, color=INK, x=0.02, ha="left", y=0.99)
+    cut_metrics = [s for _, s, _ in METRICS if s in THRESHOLDS]
+    hdr = f"{'':<9}" + "".join(f"{s:>8}" for s in cut_metrics) + f"{'all':>8}"
+    rows = [hdr]
+    for t in order:
+        sub = have[have["target_name"] == t]
+        allm = np.ones(len(sub), dtype=bool)
+        cells = ""
+        for s in cut_metrics:
+            col = _pass(sub[s], s)
+            allm &= col.values
+            cells += f"{int(col.sum())}/{len(sub)}".rjust(8)
+        cells += f"{int(allm.sum())}/{len(sub)}".rjust(8)
+        rows.append(f"{t[:9]:<9}" + cells)
+    tbl.text(0.0, 1.0, "designs passing each cutoff  (k / n)",
+             transform=tbl.transAxes, va="top", ha="left", fontsize=10.5,
+             color=INK, fontweight="bold")
+    tbl.text(0.0, 0.80, "\n".join(rows), transform=tbl.transAxes, va="top",
+             ha="left", family="monospace", fontsize=9.5, color=INK,
+             linespacing=1.5)
 
-    # domain legend (only when there's more than one domain to distinguish),
-    # ordered naturally by domain number rather than by frequency
-    if multi_domain:
-        def _dnum(d):
-            m = re.search(r"\d+", d)
-            return int(m.group()) if m else 999
-        items = sorted(dom_color.items(), key=lambda kv: _dnum(kv[0]))
-        handles = [Line2D([0], [0], marker="o", ls="", markersize=7,
-                          markerfacecolor=c, markeredgecolor="white",
-                          markeredgewidth=0.4, label=d)
-                   for d, c in items]
-        fig.legend(handles=handles, title="target domain", loc="upper left",
-                   bbox_to_anchor=(0.01, 0.955), ncol=min(len(handles), 8),
-                   frameon=False, fontsize=8, title_fontsize=8,
-                   handletextpad=0.3, columnspacing=1.1)
-
-    guide = ", ".join(f"{k}{'≥' if h else '≤'}{THRESHOLDS[k]:g}"
-                      for _, k, h in METRICS if k in THRESHOLDS)
-    lines = [
-        f"Source: bindome.epfl.ch  ·  metrics normalized 0–1 as returned by the "
-        f"API  ·  in-silico BindCraft candidates (no measured affinity)  ·  data {updated}",
-        f"dashed line = typical filter: {guide}",
-    ]
-    if empty_targets:
-        lines.append(f"no Bindome binders for: {', '.join(empty_targets)}")
-    fig.text(0.02, 0.005, "\n".join(lines), fontsize=8, color=MUTED,
-             ha="left", va="bottom", linespacing=1.5)
-
-    top = 0.90 if multi_domain else 0.93
-    fig.tight_layout(rect=[0, 0.06 + 0.02 * len(lines), 1, top])
-    fig.savefig(out_png, dpi=200, facecolor=SURFACE)
+    fig.savefig(out_png, dpi=200, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
     print(f"  [figure] wrote {out_png}")
 
