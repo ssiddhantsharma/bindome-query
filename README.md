@@ -119,6 +119,25 @@ the name-resolver safety logic, the metric tables (including the no-double-count
 and lower-is-better handling), and a figure smoke test. CI runs them on Python
 3.10 to 3.12 (`.github/workflows/ci.yml`).
 
-## License
+## License and attribution
 
-MIT. The Human Bindome data is CC-BY-4.0, so please cite the paper if you use it.
+This tool (the code in this repo) is MIT licensed.
+
+The data it fetches is **not** covered by that license. The Human Bindome (the
+sequences, structures, and metrics served by the API) is released under
+[CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/) by the authors at EPFL.
+You are free to use it, including commercially, but you must give credit. Note
+that CC-BY covers copyright and database rights only; it says nothing about
+patents, and the sequences are publicly disclosed, so treat them as an open
+starting library rather than as patentable matter.
+
+If you use the data (or this tool) in your work, please cite the paper:
+
+> Wenckstern, J., Diaz-Rovira, A. M., Kuhn, J., et al. The Human Bindome: A
+> Proteome-scale Atlas of Designed Binder Candidates. bioRxiv 2026.07.30.741542
+> (2026). https://www.biorxiv.org/content/10.64898/2026.07.30.741542v1
+
+Dataset: [`wjulius/HumanBindome`](https://huggingface.co/datasets/wjulius/HumanBindome)
+(CC-BY-4.0). The Bindome is built on
+[BindCraft](https://github.com/martinpacesa/BindCraft), which is worth citing too
+if the designs are central to your work.
