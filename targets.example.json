@@ -1,0 +1,9 @@
+{
+  "targets": [
+    { "name": "PD-L1",     "uniprot": "Q9NZQ7" },
+    { "name": "VEGF-A",    "uniprot": "P15692" },
+    { "name": "TNF-a",     "uniprot": "P01375" },
+    { "name": "IL-2",      "uniprot": "P60568" },
+    { "name": "Factor H",  "uniprot": "P08603" }
+  ]
+}
