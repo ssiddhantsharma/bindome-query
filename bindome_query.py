@@ -67,15 +67,19 @@ CUT = "#22303a"  # dashed cutoff line
 TARGET_PALETTE = ["#2e6e85", "#e0892f", "#3b6fb0", "#b5524b",
                   "#2e7d32", "#7b5ea7", "#5a6b73", "#1a9aa5"]
 
-# Filter guides in the API's NORMALIZED 0–1 units. i_pAE is normalized ≈ Å/25,
-# so 6 Å ≈ 0.24 (empirically calibrated against raw PAE matrices) — NOT 0.6.
-THRESHOLDS = {"i_pTM": 0.85, "i_pAE": 0.24, "pLDDT": 0.90, "ipSAE": 0.90}
+# Filter guides in the API's normalized 0-1 units. i_pAE and pAE are BindCraft's
+# normalized interface PAE: ColabDesign divides the interface PAE by 31.0
+# (colabdesign/af/loss.py: get_pae_loss = get_pae(...) / 31.0), so 6 A maps to
+# i_pAE = 6/31 = 0.19. The Bindome already applies BindCraft's inclusion filter
+# iPAE < 0.35 (~10.9 A, median 0.23), so every design passes that; 0.19 is a
+# stricter triage bar.
+THRESHOLDS = {"i_pTM": 0.85, "i_pAE": 0.19, "pLDDT": 0.90, "ipSAE": 0.90}
 PASS_REGION = "#e2efe3"  # light green shade for the "pass" corner
 
 # Scatter panels: each pairs two metrics so all four cutoffs show as gate lines.
 SCATTER_PAIRS = [("i_pTM", "i_pAE"), ("pLDDT", "ipSAE")]
-# Nicer axis labels (keeps the i_pAE→Å calibration visible without a footer).
-AXIS_LABEL = {"i_pAE": "i_pAE  (norm.; ≤0.24 ≈ 6 Å)"}
+# Axis labels that keep the i_pAE -> Angstrom conversion visible on the plot.
+AXIS_LABEL = {"i_pAE": "i_pAE  (interface PAE / 31;  0.19 ≈ 6 Å)"}
 
 
 # ---------------------------------------------------------------------------

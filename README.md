@@ -87,12 +87,15 @@ All values are normalized to 0 to 1 as returned by the API. Higher is better for
 target each binder was designed against, which is handy for checking whether a
 candidate overlaps an epitope you care about.
 
-Cutoffs used in the figure (normalized units): `i_pTM ≥ 0.85`, `i_pAE ≤ 0.24`,
-`pLDDT ≥ 0.90`, `ipSAE ≥ 0.90`. One thing to watch: `i_pAE` is normalized to
-about Å/25 (I calibrated this against the raw PAE matrices), so `i_pAE ≤ 0.24` is
-roughly 6 Å, whereas `0.6` would be around 15 Å. To change any of them, edit
-`THRESHOLDS` in `bindome_query.py`. And again, these are in-silico BindCraft
-design metrics, not measured affinity.
+Cutoffs used in the figure (normalized units): `i_pTM ≥ 0.85`, `i_pAE ≤ 0.19`,
+`pLDDT ≥ 0.90`, `ipSAE ≥ 0.90`. About `i_pAE`: it is BindCraft's normalized
+interface PAE, defined in ColabDesign as the interface PAE divided by 31 (see
+`get_pae_loss` in `colabdesign/af/loss.py`). So `i_pAE ≤ 0.19` is about 6 Å, and
+`0.6` would be roughly 19 Å. Note that the Bindome already applies BindCraft's
+inclusion filter of `iPAE < 0.35` (about 11 Å, median 0.23 in the paper), so
+every design in the atlas has passed that; `0.19` is a stricter triage bar. Edit
+`THRESHOLDS` in `bindome_query.py` to change any of them. These are in-silico
+BindCraft design metrics, not measured affinity.
 
 ## API notes
 
