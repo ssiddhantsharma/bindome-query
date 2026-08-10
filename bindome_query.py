@@ -522,7 +522,6 @@ def main() -> int:
     if args.top_structures > 0:
         download_top_structures(session, designs, args.outdir, args.top_structures)
 
-    # Console summary
     print("\nSummary (best i_pTM shown):")
     view = summary[["target_name", "uniprot", "n_binders", "n_regions",
                     "best_i_pTM", "median_i_pTM", "best_i_pAE"]]
